@@ -11,8 +11,8 @@ A small RTL shop front for searching a 1,000-product catalog. It finds products 
 ```bash
 cp .env.example .env              # optional: set HF_TOKEN=hf_... for semantic search
 docker compose up -d --build      # app on http://localhost:8080, MySQL on :33061
-docker compose exec app php artisan catalog:embed   # one-time: embeds 1000 products (needs HF_TOKEN)
-docker compose exec app php artisan search:eval     # prints top results for the sample queries
+docker compose exec -u www-data app php artisan catalog:embed   # one-time: embeds 1000 products (needs HF_TOKEN)
+docker compose exec -u www-data app php artisan search:eval     # prints top results for the sample queries
 ```
 
 The container migrates the database and imports the CSV on boot. Without `HF_TOKEN`, the site still works in keyword-only mode and shows a notice in the UI.
@@ -70,9 +70,11 @@ I worked with Claude Code (Claude Opus) as a pair programmer for the whole build
 3. **Implementation.** Claude scaffolded Laravel in a Composer container (there is no local PHP) and wrote the search services, commands, Docker setup, UI and docs.
 4. **Verification. I didn't trust any output unverified:**
    - PHPUnit suite (`tests/`): normalizer and expander unit tests, plus API feature tests with a deterministic fake embedder covering Hebrew queries, transliteration, English→Hebrew, HF outage fallback, the embedding cache, validation and the empty state.
-   - The tests caught real bugs: multi-word synonyms were matched as adjacent phrases (fixed to "all words, any order"), and a vocabulary query was missing its `id` column.
-   - `php artisan search:eval` runs the brief's sample queries against real MySQL and the real model; I reviewed the top results by hand after each change. One finding from this: `iPhone 16` ranked a "16GB" laptop first, which led to down-weighting bare numbers.
-   - The UI was checked manually for the loading, empty, error (DB stopped) and degraded (no token) states.
+   - The tests caught a real bug: multi-word synonyms were matched as adjacent phrases (fixed to "all words, any order").
+   - Running the real Docker stack caught two more that the sqlite tests missed: a vocabulary query without its `id` column, and file-cache permissions (artisan run as root broke web requests, so artisan now runs as `www-data`).
+   - `php artisan search:eval` runs the brief's sample queries against real MySQL; I reviewed the top results by hand after each change. Findings: `iPhone 16` ranked a "16GB" laptop first and returned 24 weak results. Down-weighting bare numbers plus a relative keyword-score cutoff brought that to the 3 Apple phones.
+   - The UI was checked with headless-browser screenshots (desktop and mobile) for the results, empty and degraded (keyword-only) states, plus `curl` checks of the API (200 / 422).
+   - A real-world failure showed up during development: the Hugging Face free credits ran out (HTTP 402). The site kept working in keyword-only mode, which validated the fallback. A circuit breaker was then added so queries don't each wait on a failing API.
 
 ## Open items
 

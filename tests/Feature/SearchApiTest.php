@@ -86,6 +86,14 @@ class SearchApiTest extends TestCase
         $this->assertGreaterThan(0, $res->json('count'));
     }
 
+    public function test_circuit_breaker_skips_embedding_calls_after_failure(): void
+    {
+        $this->embedder->down = true;
+        $this->getJson('/api/search?q=blender')->assertJson(['degraded' => true]);
+        $this->getJson('/api/search?q=mixer')->assertJson(['degraded' => true]);
+        $this->assertSame(1, $this->embedder->queryCalls);
+    }
+
     public function test_query_embeddings_are_cached(): void
     {
         $this->getJson('/api/search?q=blender');

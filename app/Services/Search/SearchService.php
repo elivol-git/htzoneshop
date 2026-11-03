@@ -31,7 +31,9 @@ class SearchService
         }
 
         $expanded = $this->expander->expand($query);
-        $keywordScores = $this->keyword->search($expanded['terms'], $this->config['keyword_candidates']);
+        $keywordScores = $this->filterKeyword(
+            $this->keyword->search($expanded['terms'], $this->config['keyword_candidates'])
+        );
 
         $degraded = false;
         $semanticScores = [];
@@ -62,6 +64,17 @@ class SearchService
             'keyword' => array_slice($keywordScores, 0, 10, true),
             'semantic' => array_slice($semanticScores, 0, 10, true),
         ]);
+    }
+
+    /** Drop the weak keyword tail (e.g. only the "16" of "iPhone 16" matched). */
+    private function filterKeyword(array $scores): array
+    {
+        if ($scores === []) {
+            return [];
+        }
+        $floor = reset($scores) * $this->config['keyword_relative_min'];
+
+        return array_filter($scores, fn ($s) => $s >= $floor);
     }
 
     /** Drop weak semantic matches (absolute floor + window below the best). */

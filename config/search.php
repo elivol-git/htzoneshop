@@ -16,6 +16,8 @@ return [
     'semantic_candidates' => 60,
 
     'keyword_candidates' => 100,
+    // Keyword hits scoring below this fraction of the best hit are dropped.
+    'keyword_relative_min' => (float) env('SEARCH_KEYWORD_RELATIVE_MIN', 0.5),
 
     // Hebrew/English function words ignored by keyword matching
     // (embeddings still see the full query).

@@ -2,11 +2,20 @@
 
 namespace App\Services\Search;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
-/** Persists query embeddings so repeated searches skip the HF round-trip. */
+/**
+ * Persists query embeddings so repeated searches skip the HF round-trip.
+ * Includes a simple circuit breaker: after a failure, new queries skip HF
+ * for BREAKER_SECONDS instead of each paying the timeout.
+ */
 class QueryEmbeddingCache
 {
+    private const BREAKER_KEY = 'search:hf-breaker';
+
+    private const BREAKER_SECONDS = 60;
+
     public function __construct(private Embedder $embedder) {}
 
     /** @return list<float> */
@@ -22,7 +31,16 @@ class QueryEmbeddingCache
             return VectorCodec::unpack($row->embedding);
         }
 
-        $vector = $this->embedder->embedQuery($normalizedQuery);
+        if (Cache::has(self::BREAKER_KEY)) {
+            throw new EmbeddingUnavailable('Embedding service recently failed; skipping');
+        }
+
+        try {
+            $vector = $this->embedder->embedQuery($normalizedQuery);
+        } catch (EmbeddingUnavailable $e) {
+            Cache::put(self::BREAKER_KEY, true, self::BREAKER_SECONDS);
+            throw $e;
+        }
 
         DB::table('query_embeddings')->insertOrIgnore([
             'query_hash' => $hash,

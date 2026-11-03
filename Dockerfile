@@ -19,7 +19,7 @@ RUN npm run build
 
 # ---- Runtime: nginx + php-fpm under supervisord ----
 FROM php:8.4-fpm-alpine AS app
-RUN apk add --no-cache nginx supervisor icu-libs \
+RUN apk add --no-cache nginx supervisor icu-libs su-exec \
  && apk add --no-cache --virtual .build-deps icu-dev $PHPIZE_DEPS \
  && docker-php-ext-install -j"$(nproc)" pdo_mysql opcache intl \
  && apk del .build-deps

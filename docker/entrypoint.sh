@@ -22,10 +22,11 @@ until php artisan db:show >/dev/null 2>&1; do
 done
 php artisan migrate --force
 
+chown -R www-data:www-data storage bootstrap/cache
+
 # First boot: load catalog if the table is empty (embeddings via `catalog:embed`).
 if [ "${AUTO_IMPORT_CATALOG:-true}" = "true" ]; then
-  php artisan catalog:import --no-interaction || echo "[entrypoint] catalog import failed"
+  su-exec www-data php artisan catalog:import --no-interaction || echo "[entrypoint] catalog import failed"
 fi
-chown -R www-data:www-data storage bootstrap/cache
 
 exec "$@"
