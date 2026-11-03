@@ -19,10 +19,22 @@ services:
       CACHE_STORE: file
       SESSION_DRIVER: file
       QUEUE_CONNECTION: sync
-      HF_TOKEN: ${HF_TOKEN:-}
+      HF_EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      HF_ENDPOINT: http://tei/embed
+      HF_TIMEOUT: 10
     depends_on:
       mysql:
         condition: service_healthy
+
+  # Self-hosted embeddings (Hugging Face Text Embeddings Inference, CPU). Same model
+  # and API shape as the hosted HF endpoint, no token or credits. ~1.1 GB RAM
+  # (one tokenizer worker: each extra worker loads its own ~300 MB tokenizer copy).
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    command: ["--model-id", "intfloat/multilingual-e5-small", "--max-client-batch-size", "64", "--tokenization-workers", "1", "--max-batch-tokens", "4096"]
+    restart: unless-stopped
+    volumes:
+      - tei-models:/data
 
   mysql:
     image: mysql:8.4
@@ -43,3 +55,4 @@ services:
 
 volumes:
   mysql-data:
+  tei-models:

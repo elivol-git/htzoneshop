@@ -45,14 +45,16 @@ class HuggingFaceEmbedder implements Embedder
     /** @return list<list<float>> */
     private function request(array $inputs, ?float $timeout = null): array
     {
-        if (blank($this->token)) {
+        $url = str_replace('{model}', $this->model, $this->endpoint);
+
+        // Hosted HF needs a token; a self-hosted TEI endpoint (HF_ENDPOINT) does not.
+        $hosted = str_ends_with((string) parse_url($url, PHP_URL_HOST), 'huggingface.co');
+        if ($hosted && blank($this->token)) {
             throw new EmbeddingUnavailable('HF_TOKEN is not configured');
         }
 
-        $url = str_replace('{model}', $this->model, $this->endpoint);
-
         try {
-            $response = Http::withToken($this->token)
+            $response = Http::when(filled($this->token), fn ($http) => $http->withToken($this->token))
                 ->acceptJson()
                 ->timeout($timeout ?? $this->timeout)
                 ->connectTimeout(3)

@@ -10,11 +10,28 @@ services:
       AWS_SECRET_ID: ${AWS_SECRET_ID:-htzone/prod}
       AWS_REGION: ${AWS_REGION:-eu-central-1}
       APP_URL: ${APP_URL:-http://localhost}
+      HF_EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      HF_ENDPOINT: http://tei/embed
+      HF_TIMEOUT: 10
     volumes:
       - app-storage:/var/www/html/storage/framework/cache
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # Self-hosted embeddings (Hugging Face Text Embeddings Inference, CPU). Same model
+  # and API shape as the hosted HF endpoint, no token or credits. ~1.1 GB RAM
+  # (one tokenizer worker: each extra worker loads its own ~300 MB tokenizer copy).
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    command: ["--model-id", "intfloat/multilingual-e5-small", "--max-client-batch-size", "64", "--tokenization-workers", "1", "--max-batch-tokens", "4096"]
+    restart: unless-stopped
+    volumes:
+      - tei-models:/data
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
 volumes:
   app-storage:
+  tei-models:

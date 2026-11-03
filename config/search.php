@@ -11,7 +11,9 @@ return [
     // Semantic-only hits must be at least this similar (cosine) to the query,
     // and within `semantic_relative_window` of the best hit. Keeps "no results"
     // meaningful for gibberish queries. e5 cosine scores live in ~0.7–0.9.
-    'semantic_min_score' => (float) env('SEARCH_SEMANTIC_MIN', 0.80),
+    // Tuned for multilingual-e5-small: gibberish tops out ~0.819, the weakest
+    // real queries ("iPhone 16", "Dyson") at ~0.824. e5-large needs ~0.80.
+    'semantic_min_score' => (float) env('SEARCH_SEMANTIC_MIN', 0.82),
     'semantic_relative_window' => (float) env('SEARCH_SEMANTIC_WINDOW', 0.05),
     'semantic_candidates' => 60,
 

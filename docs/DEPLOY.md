@@ -6,7 +6,7 @@ These are manual console steps, roughly 30 minutes. The examples use region `eu-
 Internet ──80──▶ EC2 (Docker: nginx + php-fpm, Laravel)
                   │  IAM role ──▶ Secrets Manager  htzone/prod
                   └──3306──▶ RDS MySQL 8.4 (private)
-                  └──HTTPS──▶ Hugging Face Inference API
+                  └── tei container: self-hosted embeddings (multilingual-e5-small)
 ```
 
 ## 1. Security groups (VPC → Security groups)
@@ -38,8 +38,7 @@ Store a new secret → *Other type of secret* → Plaintext JSON:
   "DB_HOST": "<rds-endpoint>",
   "DB_DATABASE": "htzone",
   "DB_USERNAME": "htzone",
-  "DB_PASSWORD": "<rds-password>",
-  "HF_TOKEN": "hf_..."
+  "DB_PASSWORD": "<rds-password>"
 }
 ```
 
@@ -63,7 +62,7 @@ IAM → Roles → Create → AWS service **EC2** → name it `htzone-ec2`, then 
 ## 5. EC2
 
 Launch instance:
-- **Amazon Linux 2023**, `t3.small` (2 GB RAM, which is enough for the Docker build), 16 GB gp3.
+- **Amazon Linux 2023**, `t3.small` (2 GB RAM), 16 GB gp3. The embeddings container uses ~1.1 GB, so add swap (below) or the Docker build can run out of memory.
 - Security group `htzone-web`, IAM instance profile `htzone-ec2`, your key pair.
 - Allocate an **Elastic IP** and associate it with the instance.
 
@@ -78,6 +77,11 @@ sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 # re-login so the docker group applies
+
+# 2 GB swap: headroom for the Docker build next to the embeddings container
+sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 ```
 
 ## 6. Deploy
@@ -96,7 +100,7 @@ On first boot the container:
 2. runs migrations,
 3. imports `catalogue/catalog_no_prices.csv`, an idempotent upsert.
 
-Then `deploy.sh` runs `catalog:embed`, which embeds the 1000 products via Hugging Face. That takes about 1–2 minutes and runs only once, because later runs skip products that already have a vector.
+The `tei` container downloads `intfloat/multilingual-e5-small` (~470 MB) on first start into the `tei-models` volume. `deploy.sh` waits for it, then runs `catalog:embed`, which embeds the 1000 products locally. That takes under a minute and runs only once, because later runs skip products that already have a vector.
 
 Check that it works with `curl http://<elastic-ip>/api/search?q=אייפון`.
 
@@ -111,4 +115,4 @@ Point a domain (or `<ip>.sslip.io`) at the Elastic IP and put Caddy in front of 
 - `docker compose -f compose.prod.yml logs -f app` shows the app logs.
 - `database unreachable`: check that the `htzone-db` security group allows 3306 from `htzone-web` and that `DB_HOST` is correct.
 - `AccessDeniedException` from Secrets Manager: the instance role is missing or its ARN or region doesn't match the secret.
-- A yellow "keyword only" notice in the UI means Hugging Face is unreachable or `HF_TOKEN` is missing or invalid.
+- A yellow "keyword only" notice in the UI means the embeddings service is unreachable: check `docker compose -f compose.prod.yml logs tei` (still downloading the model, or killed for memory).

@@ -128,6 +128,24 @@ class SearchApiTest extends TestCase
         Http::assertSent(fn ($r) => $r['inputs'] === ['passage: a', 'passage: b'] && $r->hasHeader('Authorization', 'Bearer tok'));
     }
 
+    public function test_self_hosted_endpoint_works_without_token(): void
+    {
+        Http::fake(['tei/*' => Http::response([[3, 4]])]);
+        $tei = new HuggingFaceEmbedder(null, 'intfloat/multilingual-e5-large', 'http://tei/embed', 'query: ');
+
+        $this->assertEqualsWithDelta([0.6, 0.8], $tei->embedQuery('אייפון'), 1e-6);
+        Http::assertSent(fn ($r) => $r->url() === 'http://tei/embed'
+            && $r['inputs'] === ['query: אייפון'] && ! $r->hasHeader('Authorization'));
+    }
+
+    public function test_hosted_hugging_face_still_requires_token(): void
+    {
+        Http::fake();
+        $hf = new HuggingFaceEmbedder('', 'm', 'https://router.huggingface.co/hf-inference/models/{model}/pipeline/feature-extraction');
+        $this->expectException(EmbeddingUnavailable::class);
+        $hf->embedQuery('x');
+    }
+
     public function test_hugging_face_errors_become_embedding_unavailable(): void
     {
         Http::fake(['*' => Http::response('loading', 503)]);

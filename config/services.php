@@ -38,7 +38,7 @@ return [
     'huggingface' => [
         'token' => env('HF_TOKEN'),
         // Multilingual (Hebrew + English) sentence-embedding model.
-        'model' => env('HF_EMBEDDING_MODEL', 'intfloat/multilingual-e5-large'),
+        'model' => env('HF_EMBEDDING_MODEL', 'intfloat/multilingual-e5-small'),
         'endpoint' => env('HF_ENDPOINT', 'https://router.huggingface.co/hf-inference/models/{model}/pipeline/feature-extraction'),
         // e5 models expect "query: " / "passage: " prefixes.
         'query_prefix' => env('HF_QUERY_PREFIX', 'query: '),
