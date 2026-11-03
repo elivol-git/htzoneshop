@@ -53,7 +53,58 @@ class KeywordSearch
             $scores[(int) $row->id] = (float) $row->score;
         }
 
-        return $scores;
+        return $this->dropSubstringOnlyHits($scores, $terms);
+    }
+
+    /**
+     * The ngram parser matches substrings, which is right for Hebrew (glued
+     * prefixes) but wrong for English: "ski" matches "skincare" and "Moleskine".
+     * Keep a hit only if at least one term matches strictly (see wordMatches).
+     *
+     * @param  array<int, float>  $scores
+     * @param  array<string, float>  $terms
+     */
+    private function dropSubstringOnlyHits(array $scores, array $terms): array
+    {
+        if ($scores === []) {
+            return [];
+        }
+        $texts = Product::query()->whereIn('id', array_keys($scores))->pluck('search_text', 'id');
+
+        return array_filter($scores, function ($_, $id) use ($texts, $terms) {
+            foreach (array_keys($terms) as $term) {
+                if ($this->termMatches((string) ($texts[$id] ?? ''), $term)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }, ARRAY_FILTER_USE_BOTH);
+    }
+
+    private function termMatches(string $text, string $term): bool
+    {
+        foreach (explode(' ', $term) as $word) {
+            if (! $this->wordMatches($text, $word)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Latin words must match a whole word (optional plural: phone/phones).
+     * Hebrew words and bare numbers stay substring matches: Hebrew glues
+     * prefixes onto words, and "16" should still hit "16GB".
+     */
+    private function wordMatches(string $text, string $word): bool
+    {
+        if (preg_match('/^[a-z][a-z0-9]*$/', $word) !== 1) {
+            return str_contains($text, $word);
+        }
+
+        return preg_match('/(?<![a-z0-9])'.preg_quote($word, '/').'(?:e?s)?(?![a-z0-9])/', $text) === 1;
     }
 
     private function like(array $terms, int $limit): array
@@ -62,8 +113,7 @@ class KeywordSearch
         foreach (Product::query()->get(['id', 'search_text']) as $p) {
             $score = 0.0;
             foreach ($terms as $term => $weight) {
-                $words = explode(' ', $term);
-                if (count(array_filter($words, fn ($w) => str_contains($p->search_text, $w))) === count($words)) {
+                if ($this->termMatches($p->search_text, $term)) {
                     $score += $weight;
                 }
             }

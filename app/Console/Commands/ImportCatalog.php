@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Product;
 use App\Services\Search\CatalogText;
+use App\Services\Search\Suggester;
 use App\Services\Search\Vocabulary;
 use Illuminate\Console\Command;
 use RuntimeException;
@@ -55,6 +56,7 @@ class ImportCatalog extends Command
         }
 
         Vocabulary::flush();
+        Suggester::flush();
         $this->info('Imported '.count($rows).' products. Total in DB: '.Product::count());
 
         return self::SUCCESS;

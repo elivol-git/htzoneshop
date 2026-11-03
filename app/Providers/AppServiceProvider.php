@@ -6,6 +6,7 @@ use App\Services\Search\Embedder;
 use App\Services\Search\HuggingFaceEmbedder;
 use App\Services\Search\QueryExpander;
 use App\Services\Search\SearchService;
+use App\Services\Search\Suggester;
 use App\Services\Search\TextNormalizer;
 use App\Services\Search\Vocabulary;
 use Illuminate\Support\ServiceProvider;
@@ -20,6 +21,10 @@ class AppServiceProvider extends ServiceProvider
             $app->make(TextNormalizer::class),
             config('search.synonyms', []),
             Vocabulary::load(),
+        ));
+        $this->app->bind(Suggester::class, fn ($app) => new Suggester(
+            $app->make(TextNormalizer::class),
+            config('search.synonyms', []),
         ));
         $this->app->bind(SearchService::class, fn ($app) => new SearchService(
             $app->make(TextNormalizer::class),

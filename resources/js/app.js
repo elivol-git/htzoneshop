@@ -1,3 +1,5 @@
+import { initSuggest } from './suggest';
+
 const form = document.getElementById('search-form');
 const input = document.getElementById('q');
 const clearBtn = document.getElementById('search-clear');
@@ -121,8 +123,20 @@ async function search(raw) {
     }
 }
 
+const suggest = initSuggest({
+    input,
+    list: document.getElementById('suggest'),
+    status: document.getElementById('suggest-status'),
+    onPick(text) {
+        clearTimeout(debounceTimer);
+        lastQuery = null;
+        search(text);
+    },
+});
+
 form.addEventListener('submit', (e) => {
     e.preventDefault();
+    suggest.close();
     clearTimeout(debounceTimer);
     lastQuery = null;
     search(input.value);
@@ -137,11 +151,13 @@ input.addEventListener('input', () => {
 clearBtn.addEventListener('click', () => {
     input.value = '';
     input.focus();
+    suggest.close();
     search('');
 });
 
 chips.forEach((chip) => chip.addEventListener('click', () => {
     input.value = chip.dataset.query;
+    suggest.close();
     clearTimeout(debounceTimer);
     search(input.value);
 }));

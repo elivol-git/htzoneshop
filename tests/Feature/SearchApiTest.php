@@ -34,6 +34,7 @@ class SearchApiTest extends TestCase
     {
         VectorIndex::flush();
         Vocabulary::flush();
+        \App\Services\Search\Suggester::flush();
         parent::tearDown();
     }
 
@@ -70,6 +71,81 @@ class SearchApiTest extends TestCase
         $this->assertContains('P0401', $ids);
         $this->assertContains('P0413', $ids);
         $this->assertNotContains('P0402', $ids, 'Samsung phone should not match "iPhone"');
+    }
+
+    public function test_english_terms_match_whole_words_not_substrings(): void
+    {
+        // "ski" must not hit "skincare" / "Moleskine" (ngram substring matching).
+        foreach (['skincare set' => 'P9001', 'moleskine notebook' => 'P9002', 'ski gloves' => 'P9003'] as $text => $id) {
+            Product::forceCreate([
+                'external_id' => $id, 'name' => $text, 'category' => 'x', 'subcategory' => 'x',
+                'price' => 100, 'search_text' => $text,
+            ]);
+        }
+        $keyword = app(\App\Services\Search\KeywordSearch::class);
+
+        $ids = Product::whereIn('id', array_keys($keyword->search(['ski' => 1.0], 10)))->pluck('external_id')->all();
+        $this->assertSame(['P9003'], $ids);
+
+        // Plurals still match; Hebrew stays substring-based.
+        $this->assertNotEmpty($keyword->search(['glove' => 1.0], 10));
+        $this->assertNotEmpty($keyword->search(['אבק' => 1.0], 10));
+    }
+
+    private function suggest(string $q): array
+    {
+        return array_column($this->getJson('/api/suggest?q='.urlencode($q))->assertOk()->json('suggestions'), 'text');
+    }
+
+    public function test_suggest_completes_word_prefixes(): void
+    {
+        $items = $this->getJson('/api/suggest?q='.urlencode('שואב'))->json('suggestions');
+
+        $this->assertNotEmpty($items);
+        foreach ($items as $item) {
+            // Synonym variants ("vacuum") are allowed; categories and products must start with the typed word.
+            if ($item['type'] !== 'term') {
+                $this->assertStringContainsString('שוא', $item['text']);
+            }
+        }
+        $texts = array_column($items, 'text');
+        $this->assertLessThanOrEqual(6, count($texts));
+        $this->assertSame([], $this->suggest('ש'), 'one character is too short to suggest');
+        $this->assertSame([], $this->suggest('zzzzqq'));
+    }
+
+    public function test_suggest_matches_every_typed_word_and_ignores_hebrew_prefix_letters(): void
+    {
+        $this->assertContains('שואב אבק אנכי אלחוטי דייסון עם חיישן לייזר לגילוי אבק', $this->suggest('שואב אבק'));
+        $this->assertNotContains('מטהג אוויר חם Air Fryer XL', $this->suggest('שואב אבק'));
+        // "לגילוי" starts with the prefix letter ל; typing the bare word still finds it.
+        $this->assertContains('שואב אבק אנכי אלחוטי דייסון עם חיישן לייזר לגילוי אבק', $this->suggest('גילוי'));
+    }
+
+    public function test_suggest_offers_synonym_variants(): void
+    {
+        $texts = $this->suggest('iph');
+
+        $this->assertContains('iphone', array_map('strtolower', $texts));
+        $this->assertContains('אייפון', $texts, 'typing the English spelling also offers the Hebrew one');
+    }
+
+    public function test_suggest_fixes_wrong_keyboard_layout(): void
+    {
+        // "שואב" typed with the keyboard still on English is "autc".
+        $this->assertSame($this->suggest('שואב'), $this->suggest('autc'));
+    }
+
+    public function test_suggest_tolerates_one_letter_typo_only_as_last_resort(): void
+    {
+        $this->assertContains('שואב אבק אנכי אלחוטי דייסון עם חיישן לייזר לגילוי אבק', $this->suggest('שוב אבק'));
+        $this->assertSame([], $this->suggest('בלנדרר'.'x'), 'two letters off is not a typo');
+    }
+
+    public function test_suggest_validates_input(): void
+    {
+        $this->getJson('/api/suggest')->assertUnprocessable();
+        $this->getJson('/api/suggest?q='.str_repeat('a', 101))->assertUnprocessable();
     }
 
     public function test_english_query_matches_hebrew_catalog(): void

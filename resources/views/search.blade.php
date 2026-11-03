@@ -25,6 +25,7 @@
         <form class="search" role="search" id="search-form" action="{{ route('home') }}">
             <label for="q" class="visually-hidden">חיפוש מוצרים</label>
             <input id="q" name="q" type="search" class="search__input" dir="auto" autocomplete="off"
+                   role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest" aria-haspopup="listbox"
                    maxlength="200" placeholder="למשל: מתנה למישהו שאוהב לבשל" value="{{ request('q') }}">
             <button type="button" class="search__clear" id="search-clear" aria-label="ניקוי החיפוש" hidden>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -33,6 +34,8 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <span>חיפוש</span>
             </button>
+            <ul class="suggest" id="suggest" role="listbox" aria-label="הצעות חיפוש" hidden></ul>
+            <span class="visually-hidden" id="suggest-status" role="status"></span>
         </form>
 
         <div class="examples" id="examples">
