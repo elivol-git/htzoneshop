@@ -34,7 +34,6 @@ Store a new secret → *Other type of secret* → Plaintext JSON:
 ```json
 {
   "APP_KEY": "base64:<generate: openssl rand -base64 32>",
-  "APP_URL": "http://<elastic-ip>",
   "DB_HOST": "<rds-endpoint>",
   "DB_DATABASE": "htzone",
   "DB_USERNAME": "htzone",
@@ -42,7 +41,7 @@ Store a new secret → *Other type of secret* → Plaintext JSON:
 }
 ```
 
-Name it `htzone/prod`. The container reads this secret at startup through the instance role, so no credentials are kept on disk in the repo or the image.
+Name it `htzone/prod`. The container reads this secret at startup through the instance role, so no credentials are kept on disk in the repo or the image. Leave rotation off: the app reads the secret only at startup. `APP_URL` is not secret and goes in the host `.env` (step 6); a container env var always wins over the secret.
 
 ## 4. IAM role for EC2
 
@@ -91,6 +90,7 @@ git clone https://github.com/<you>/htzoneshop.git && cd htzoneshop
 cat > .env <<'ENV'
 AWS_SECRET_ID=htzone/prod
 AWS_REGION=eu-central-1
+APP_URL=http://<elastic-ip>
 ENV
 ./deploy.sh
 ```
