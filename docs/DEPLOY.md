@@ -75,6 +75,10 @@ sudo mkdir -p /usr/local/lib/docker/cli-plugins
 sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# Amazon Linux's buildx is too old for `compose build` (needs >= 0.17)
+BX=$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest | grep -m1 tag_name | cut -d'"' -f4)
+sudo curl -SL "https://github.com/docker/buildx/releases/download/$BX/buildx-$BX.linux-amd64" \n  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 # re-login so the docker group applies
 
 # 2 GB swap: headroom for the Docker build next to the embeddings container

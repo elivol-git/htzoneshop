@@ -1,85 +1,72 @@
-# htzone · Catalog search
+<div dir="rtl">
 
-A small RTL shop front for searching a 1,000-product catalog. It finds products by exact name (`iPhone 16`, `Dyson`), by Hebrew, English or mixed text (`אייפון`, `air fryer`), and by need (`מתנה למישהו שאוהב לבשל`, `משהו שיעזור לנקות שערות של כלב מהספה`).
+# htzone · חיפוש בקטלוג מוצרים
 
-**Live:** `http://<elastic-ip>` (see [docs/DEPLOY.md](docs/DEPLOY.md))
+חנות קטנה בעברית (RTL) עם חיפוש בקטלוג של 1,000 מוצרים. אפשר לחפש לפי שם מדויק (`iPhone 16`, `Dyson`), בעברית, באנגלית או בשילוב (`אייפון`, `air fryer`), ולפי צורך (`מתנה למישהו שאוהב לבשל`, `משהו שיעזור לנקות שערות של כלב מהספה`). בזמן ההקלדה מופיעה השלמה אוטומטית.
 
-**Stack:** PHP 8.4, Laravel 13, MySQL 8.4 (RDS), Docker (nginx + php-fpm), self-hosted Hugging Face Text Embeddings Inference (`intfloat/multilingual-e5-small`, CPU), AWS EC2 + RDS + Secrets Manager.
+**האתר החי:** http://htzone.ddns.net/ (פירוט ההקמה ב-[docs/DEPLOY.md](docs/DEPLOY.md))
 
-## Running locally
+**טכנולוגיות:** PHP 8.4, Laravel 13, MySQL 8.4 (RDS), Docker (nginx + php-fpm), מודל embeddings עצמאי `intfloat/multilingual-e5-small` על השרת, AWS (EC2 + RDS + Secrets Manager).
+
+## הוראות הרצה וטעינת הקטלוג
+
+<div dir="ltr">
 
 ```bash
 cp .env.example .env
-docker compose up -d --build      # app on http://localhost:8080, MySQL on :33061, TEI embeddings (first start downloads the ~470 MB model)
-docker compose exec -u www-data app php artisan catalog:embed   # one-time: embeds 1000 products (~30 s on CPU)
-docker compose exec -u www-data app php artisan search:eval     # prints top results for the sample queries
+docker compose up -d --build   # האתר ב-http://localhost:8080, MySQL ב-:33061
+docker compose exec -u www-data app php artisan catalog:embed   # חד-פעמי: וקטורים ל-1,000 המוצרים (כחצי דקה)
+docker compose exec -u www-data app php artisan search:eval     # מדפיס את התוצאות הראשונות לשאילתות הדוגמה
 ```
 
-The container migrates the database and imports the CSV on boot. Embeddings come from the `tei` container (~1.1 GB RAM, no token or API credits). While it is down or still loading, the site works in keyword-only mode and shows a notice in the UI. To use hosted Hugging Face instead, unset `HF_ENDPOINT` and set `HF_TOKEN`.
+</div>
 
-Run the tests with `php artisan test`, or without a local PHP install:
+- בעלייה הראשונה הקונטיינר מריץ את ה-migrations וטוען את `catalogue/catalog_no_prices.csv` לבד (אפשר גם להריץ ידנית, בלי חשש מכפילויות: `php artisan catalog:import [נתיב-ל-csv]`).
+- בהפעלה הראשונה קונטיינר ה-`tei` מוריד את המודל (כ-470MB). עד שהוא מוכן החיפוש עובד על מילות מפתח בלבד, והאתר מציג על כך הודעה.
+- בקובץ ה-CSV אין מחירים, לכן הטעינה מייצרת לכל מוצר מחיר קבוע וריאליסטי לפי תת-הקטגוריה שלו (`config/catalog.php`). אותו קובץ נותן תמיד אותם מחירים.
+- בדיקות: `php artisan test`, או בלי PHP מקומי: `docker run --rm -v "$PWD:/app" -w /app php:8.4-cli php vendor/bin/phpunit`
 
-```bash
-docker run --rm -v "$PWD:/app" -w /app php:8.4-cli php vendor/bin/phpunit
-```
+## ההחלטות המרכזיות ולמה
 
-## How search works
+**Laravel.** בחרתי ב-Laravel כי זה framework יציב עם הרבה כלים מובנים, שמאפשר לבנות אפליקציה גדולה ומורכבת. זה חשוב אם רוצים להרחיב את החנות לאתר שלם עם הרשמה, סל קניות, תשלומים, שליחת הודעות ועוד.
 
-```
-query ─┬─▶ normalize (lowercase, strip niqqud/punctuation, stopwords)
-       ├─▶ keyword leg: tokens + Hebrew-prefix variants (מהספה→ספה) + synonym groups
-       │      (אייפון ↔ iphone ↔ "apple סמארטפון", שואב ↔ vacuum …)
-       │      → MySQL FULLTEXT, ngram parser (Hebrew-safe substring matching)
-       ├─▶ semantic leg: multilingual-e5 query embedding (cached in DB)
-       │      → cosine vs. 1000 product vectors (in-memory, ~5 ms)
-       │      → keep hits ≥ absolute floor and close to the best hit
-       └─▶ Reciprocal Rank Fusion + boost when every query word is in the product name
-```
+**חיפוש היברידי.** כל שאילתה עוברת שני מסלולים שמשלימים זה את זה, והדירוגים שלהם מתמזגים בשיטת Reciprocal Rank Fusion:
+- *מילות מפתח* (MySQL FULLTEXT עם `ngram`): מדויק בשמות, ותומך בעברית בלי stemmer (`לכלב` מכיל את `כלב`). קבוצות מילים נרדפות מכסות תעתיקים כמו אייפון ↔ iPhone.
+- *חיפוש סמנטי* (embeddings): מבין כוונה ("מי שאוהב לבשל" → סירים, סכינים, מיקסרים), אבל מטושטש בשמות מדויקים.
 
-Why this design:
-- **The two legs cover each other's weak spots.** Embeddings understand intent ("someone who loves cooking" → pans, knives, mixers) but are fuzzy on exact names. FULLTEXT is exact but doesn't know that אייפון = iPhone. RRF merges the two rankings without tuning score scales against each other.
-- **Hebrew without a stemmer.** MySQL's `ngram` FULLTEXT parser (bigrams) matches substrings, so `לכלב` contains `כלב`. Query tokens with glued prefixes (`מהספה`) are reduced only to variants that actually appear in the catalog vocabulary.
-- **The catalog has hidden English.** Placeholder image URLs carry an English label (`?text=robot%20vacuum`). The importer adds that label to the search text and to the embedding text, which helps English queries against Hebrew rows.
-- **Graceful degradation.** If the embedding service is down or slow, the API returns keyword results with `degraded: true`, and the UI says so. Query embeddings are cached in the `query_embeddings` table, so repeated queries make no API call.
-- **No-results stays meaningful.** Semantic search always returns *something*, so semantic-only hits must clear an absolute similarity floor and fall within a window of the best hit. A gibberish query therefore returns the empty state.
-- **Scale path.** A brute-force vector scan is fine for about 20k products. Beyond that, move the vectors to OpenSearch k-NN, pgvector, or MySQL HeatWave vector search.
+**כלי ה-AI.** בהתחלה השתמשתי ב-Hugging Face Inference API, אבל הקרדיטים החינמיים נגמרו מהר (שגיאה 402). האתר המשיך לעבוד על מילות מפתח בלבד, מה שאימת את מנגנון הגיבוי, ואחר כך הוספתי circuit breaker כדי שכל שאילתה לא תחכה ל-API שנכשל. בסוף העברתי את ה-embeddings למודל קטן (`multilingual-e5-small`) שרץ על השרת שלי בקונטיינר TEI, ולכן אין צריכה של טוקנים ואין חיוב לפי שימוש. הפתרון הזה עדיף, כי עם הרבה משתמשים באתר חיוב לפי טוקנים עלול להיגמר או להפוך להוצאה גדולה שאי אפשר לחזות. בחרתי ב-small ולא ב-large כי large דורש כ-4.5GB זיכרון והשרת (t3.small) הוא בן 2GB, בעוד small צורך כ-1.1GB. בבדיקה ב-`search:eval` הוא נתן אותן תוצאות בחיפושי מוצרים ישירים, והפסיד מעט בחיפושים ארוכים שמתארים צורך.
 
-### Data notes
-- The CSV has **no price column**. `catalog:import` generates a deterministic price per product within a realistic range for its subcategory (`config/catalog.php`). The same CSV always yields the same prices, and a real `price` column would be used automatically if one is added.
-- The catalog has **no product literally named iPhone**: Apple phones are listed as `סמארטפון … | Apple`. `iPhone 16` and `אייפון` therefore reach them through the synonym group, and the bare number `16` is down-weighted so it doesn't match "16GB" laptops.
+**"אין תוצאות" נשאר משמעותי.** חיפוש סמנטי תמיד מחזיר *משהו*, לכן תוצאה סמנטית בלבד חייבת לעבור סף דמיון מוחלט ולהיות קרובה לתוצאה הטובה ביותר. ג'יבריש מחזיר מסך "לא מצאנו".
 
-## Project map
+**הערות על הנתונים.** בקטלוג אין מוצר בשם iPhone: מכשירי אפל רשומים כ-`סמארטפון … | Apple`, ולכן `iPhone 16` מגיע אליהם דרך קבוצת המילים הנרדפות, והמספר `16` לבדו מקבל משקל נמוך כדי שלא יתאים ל"16GB". בכתובות התמונות יש תווית באנגלית (`?text=robot%20vacuum`), והיא נכנסת לטקסט החיפוש ולטקסט ה-embeddings.
 
-| Path | What |
-|------|------|
-| `app/Services/Search/SearchService.php` | hybrid orchestration, RRF, name boost, degradation |
-| `app/Services/Search/KeywordSearch.php` | FULLTEXT (MySQL) / LIKE (sqlite tests) retrieval |
-| `app/Services/Search/QueryExpander.php`, `TextNormalizer.php` | Hebrew/English normalization, prefixes, synonyms |
-| `app/Services/Search/HuggingFaceEmbedder.php`, `VectorIndex.php` | embeddings client + in-memory cosine index |
-| `app/Console/Commands/` | `catalog:import`, `catalog:embed`, `search:eval` |
-| `config/search.php` | thresholds, RRF weights, stopwords, synonym groups |
-| `resources/views/search.blade.php`, `resources/js/app.js`, `resources/css/app.css` | UI (RTL, loading, empty and error states) |
-| `Dockerfile`, `docker/`, `compose*.yml`, `deploy.sh` | container + deployment |
+## איך בדקתי
 
-## How Claude was used
+- **בדיקות אוטומטיות** (PHPUnit): שאילתות בעברית, תעתיק, אנגלית מול קטלוג עברי, נפילת שירות ה-embeddings, מטמון, ולידציה ומצב ריק. הבדיקות מצאו באג אמיתי (מילים נרדפות בכמה מילים הותאמו כביטוי צמוד במקום "כל המילים, בכל סדר").
+- **הרצה על ה-stack האמיתי** (Docker + MySQL) מצאה שני באגים שבדיקות ה-sqlite פספסו: שאילתה ללא עמודת `id`, והרשאות מטמון הקבצים (artisan רץ כ-root ושבר בקשות web, והיום הוא רץ כ-`www-data`).
+- **חיפושים ידניים** עם `search:eval`: מוצרים ("שואב אבק", "Dyson", "מכונת קפה"), משפטים שלמים ("gift for kid", "מתנה למי שאוהב לבשל", "משהו לילד בן 8"), ושמות ברמת תעתיק ("אייפון").
+  - `iPhone 16` החזיר מחשב עם "16GB" ראשון ו-24 תוצאות חלשות. הורדת משקל למספרים לבדם וחיתוך לפי ציון יחסי הביאו אותו לשלושת הסמארטפונים של אפל.
+- **חיפוש של משהו שלא קיים בקטלוג:** `ski equipment` החזיר תוצאות לא קשורות: `men skincare set`, `skincare set`, `notebook`. הסיבה: חיפוש תת-מחרוזת, שמתאים בעברית אבל באנגלית התאים את `ski` לתוך skincare ולתוך Moleskine. ביקשתי מ-Claude לתקן: מילים באנגלית מותאמות עכשיו כמילה שלמה (עם ריבוי אופציונלי), ובעברית נשאר חיפוש תת-מחרוזת. נוסף מבחן רגרסיה שנכשל בלי התיקון, ו-14 שאילתות הבסיס החזירו תוצאות זהות.
+- **ג'יבריש:** `חיעחעי חעיח` מחזיר "לא מצאנו מוצרים שמתאימים ל„חיעחעי חעיח”".
+- **ממשק:** צילומי מסך בדפדפן headless (מחשב וטלפון) למצבי תוצאות, ריק ומצב ללא חיפוש חכם; ובדיקת ההשלמה האוטומטית עם הקלדה אמיתית (חצים, Enter, Escape, עכבר).
 
-I worked with Claude Code (Claude Opus) as a pair programmer for the whole build:
+## מגבלות ידועות ומה הייתי משפר
 
-1. **Planning.** I gave Claude the assignment brief, and in plan mode it asked about the embedding provider (I chose Hugging Face hosted), how to provision infrastructure (I chose manual console steps plus docs), and where the CSV would come from. It then wrote the architecture plan above.
-2. **Data inspection before coding.** Claude profiled the CSV first: 1000 rows and 80 subcategories, no prices, no literal "iPhone", English labels in image URLs. Those findings shaped the price generator, the synonym groups and the image-label trick.
-3. **Implementation.** Claude scaffolded Laravel in a Composer container (there is no local PHP) and wrote the search services, commands, Docker setup, UI and docs.
-4. **Verification. I didn't trust any output unverified:**
-   - PHPUnit suite (`tests/`): normalizer and expander unit tests, plus API feature tests with a deterministic fake embedder covering Hebrew queries, transliteration, English→Hebrew, HF outage fallback, the embedding cache, validation and the empty state.
-   - The tests caught a real bug: multi-word synonyms were matched as adjacent phrases (fixed to "all words, any order").
-   - Running the real Docker stack caught two more that the sqlite tests missed: a vocabulary query without its `id` column, and file-cache permissions (artisan run as root broke web requests, so artisan now runs as `www-data`).
-   - `php artisan search:eval` runs the brief's sample queries against real MySQL; I reviewed the top results by hand after each change. Findings: `iPhone 16` ranked a "16GB" laptop first and returned 24 weak results. Down-weighting bare numbers plus a relative keyword-score cutoff brought that to the 3 Apple phones.
-   - The UI was checked with headless-browser screenshots (desktop and mobile) for the results, empty and degraded (keyword-only) states, plus `curl` checks of the API (200 / 422).
-   - A real-world failure showed up during development: the Hugging Face free credits ran out (HTTP 402). The site kept working in keyword-only mode, which validated the fallback. A circuit breaker was then added so queries don't each wait on a failing API. Embeddings then moved to a self-hosted TEI container with `multilingual-e5-small`: e5-large needed ~4.5 GB RAM (too much for a t3.small), while e5-small uses ~1.1 GB and matched it on direct product queries in `search:eval`, losing a little on long intent-style queries. The semantic floor was re-tuned from 0.80 to 0.82 for the new model.
+- **שאילתות ארוכות שמתארות צורך** פחות מדויקות עם e5-small מאשר עם large (למשל "ניקוי שערות כלב מהספה" לא תמיד מביא את מנקה הספות). אפשר לעבור ל-large או ל-bge-m3 על שרת גדול יותר.
+- **חיפוש תת-מחרוזת בעברית** עדיין נותן רעש: `ציוד סקי` מחזיר כוסות **ויסקי**. התיקון: להגביל התאמה לתחילת מילה פלוס אות או שתיים של תחילית.
+- **התמונות והמחירים הם placeholders**: אין בקובץ תמונות אמיתיות ומחירים.
+- **אין HTTPS.** יש דומיין (`htzone.ddns.net`, DDNS חינמי שמצביע על ה-Elastic IP), אבל האתר מוגש ב-HTTP בלבד. הצעד הבא: Caddy עם Let's Encrypt או ALB עם ACM. שירות DDNS חינמי מתאים לדמו, ובפרודקשן כדאי דומיין רגיל.
+- **שרת קטן:** 2GB RAM עם כ-1.1GB למודל. בעומס גבוה כדאי t3.medium.
+- **סריקת וקטורים בזיכרון** מתאימה לכ-20 אלף מוצרים. מעבר לזה: OpenSearch k-NN, pgvector או MySQL HeatWave.
+- **רשימת המילים הנרדפות ידנית**, ובהשלמה האוטומטית היא יוצרת הצעות דומות מדי (`שואב`, `שואב אבק`, `שואבי אבק`). כדאי לבנות אותה לפי חיפושים שלא החזירו תוצאות.
+- **חסרים:** CI/CD (GitHub Actions שמריץ בדיקות ופורס), ומדד רלוונטיות אוטומטי (סט שאילתות מתוייג ו-nDCG) במקום בדיקה ידנית של `search:eval`.
 
-## Open items
+## איך עבדתי עם Claude
 
-- HTTPS and a domain name (Caddy plus Let's Encrypt is a small addition).
-- CI/CD: GitHub Actions that runs the tests and deploys over SSH or SSM.
-- Real product images and prices. The CSV ships placeholders only.
-- Search analytics (zero-result queries) and a growing synonym list based on them.
-- An offline relevance metric (a labelled query set with nDCG) instead of eyeballing `search:eval`.
+עבדתי עם Claude Code כ-pair programmer לאורך כל הבנייה: תכנון ארכיטקטורה, סקירת הנתונים לפני הקוד (1,000 שורות, אין מחירים, אין "iPhone" מילולי, תוויות באנגלית בכתובות התמונות), כתיבת הקוד, הבדיקות וההקמה ב-AWS. לא סמכתי על פלט שלא נבדק: כל שינוי עבר הרצת הבדיקות, והחיפושים עצמם נבדקו על MySQL אמיתי.
+
+**הצעות שלו ששיניתי או דחיתי:**
+- **שינוי: בחירת המודל.** Claude הציע לארח בעצמי את אותו מודל (`e5-large`), כי אז אין צורך לחשב מחדש את הוקטורים. אחרי שמדדנו התברר שהוא דורש כ-4.5GB זיכרון והשרת שלי קטן מדי. מתוך ארבע חלופות בחרתי `e5-small`, אבל ביקשתי לבדוק אותו קודם מול `search:eval` ולא לקבל אותו על סמך השערה. הבדיקה חשפה שסף הדמיון צריך לעלות מ-0.80 ל-0.82, אחרת ג'יבריש חוזר עם תוצאות.
+- **דחייה: סיסמת RDS מנוהלת ב-Secrets Manager.** חשבתי שזה עדיף, ו-Claude המליץ נגד. האפליקציה קוראת סוד אחד בלבד, ורק בעת עליית הקונטיינר, ורוטציית סיסמה אוטומטית כל 7 ימים הייתה מפילה את האתר עד הפעלה מחדש. לכן נשארתי עם סיסמה בניהול עצמי וסוד אחד.
+
+</div>
