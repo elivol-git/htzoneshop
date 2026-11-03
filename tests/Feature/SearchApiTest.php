@@ -199,6 +199,19 @@ class SearchApiTest extends TestCase
         $this->getJson('/api/search?q=zzqqxx')->assertOk()->assertJson(['count' => 0, 'results' => []]);
     }
 
+    public function test_home_page_links_real_favicon_files(): void
+    {
+        $this->withoutVite();
+        $this->get('/')->assertOk()
+            ->assertSee('rel="icon" href="/favicon.svg"', false)
+            ->assertSee('rel="apple-touch-icon" href="/apple-touch-icon.png"', false);
+
+        foreach (['favicon.svg', 'favicon.ico', 'apple-touch-icon.png'] as $file) {
+            $this->assertGreaterThan(100, filesize(public_path($file)), "$file is missing or empty");
+        }
+        $this->assertSame("   ", substr(file_get_contents(public_path('favicon.ico')), 0, 4), 'favicon.ico is not a valid ICO');
+    }
+
     public function test_home_page_renders_rtl(): void
     {
         $this->withoutVite();
