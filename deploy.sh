@@ -9,7 +9,7 @@ docker image prune -f >/dev/null
 
 echo "Waiting for app health..."
 for i in $(seq 1 40); do
-  if curl -fsS http://127.0.0.1/health >/dev/null 2>&1; then
+  if docker compose -f compose.prod.yml exec -T app wget -qO- http://127.0.0.1/health >/dev/null 2>&1; then
     break
   fi
   sleep 3

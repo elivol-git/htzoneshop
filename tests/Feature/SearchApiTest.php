@@ -148,6 +148,16 @@ class SearchApiTest extends TestCase
         $this->getJson('/api/suggest?q='.str_repeat('a', 101))->assertUnprocessable();
     }
 
+    public function test_app_trusts_proxy_headers_for_scheme_and_client_ip(): void
+    {
+        // Behind Caddy: rate limiting must see the visitor, not the proxy, and URLs must be https.
+        \Illuminate\Support\Facades\Route::get('/_probe', fn (\Illuminate\Http\Request $r) => ['secure' => $r->secure(), 'ip' => $r->ip()]);
+
+        $this->withHeaders(['X-Forwarded-Proto' => 'https', 'X-Forwarded-For' => '203.0.113.9'])
+            ->getJson('/_probe')
+            ->assertExactJson(['secure' => true, 'ip' => '203.0.113.9']);
+    }
+
     public function test_english_query_matches_hebrew_catalog(): void
     {
         $res = $this->getJson('/api/search?q=blender')->assertOk();

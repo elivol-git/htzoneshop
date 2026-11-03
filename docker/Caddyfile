@@ -1,0 +1,12 @@
+# TLS terminator for production. Caddy obtains and renews the Let's Encrypt
+# certificate by itself (ports 80 and 443 must reach this host) and redirects
+# HTTP to HTTPS. Certificates live in the `caddy-data` volume: keep it, or
+# every restart asks Let's Encrypt again (rate limited).
+{$DOMAIN:htzone.ddns.net} {
+	encode zstd gzip
+
+	# Short on purpose while the setup is new; raise once HTTPS is proven.
+	header Strict-Transport-Security "max-age=86400"
+
+	reverse_proxy app:80
+}

@@ -1,11 +1,12 @@
-# EC2: app only. DB = RDS; all secrets from AWS Secrets Manager via instance role.
+# EC2: caddy (HTTPS) -> app (nginx + php-fpm) + tei (embeddings). DB = RDS; all secrets
+# from AWS Secrets Manager via instance role.
 services:
   app:
     build: .
     image: htzone-shop:latest
     restart: unless-stopped
-    ports:
-      - "80:80"
+    expose:
+      - "80"
     environment:
       AWS_SECRET_ID: ${AWS_SECRET_ID:-htzone/prod}
       AWS_REGION: ${AWS_REGION:-eu-central-1}
@@ -15,6 +16,25 @@ services:
       HF_TIMEOUT: 10
     volumes:
       - app-storage:/var/www/html/storage/framework/cache
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # HTTPS in front of the app. Needs inbound TCP 80 and 443 (Let's Encrypt HTTP/TLS challenge).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-htzone.ddns.net}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -35,3 +55,5 @@ services:
 volumes:
   app-storage:
   tei-models:
+  caddy-data:
+  caddy-config:

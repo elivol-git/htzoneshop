@@ -3,7 +3,7 @@
 These are manual console steps, roughly 30 minutes. The examples use region `eu-central-1`; any region works if you use it everywhere.
 
 ```
-Internet ──80──▶ EC2 (Docker: nginx + php-fpm, Laravel)
+Internet ──80/443──▶ EC2 (Docker: Caddy ─▶ nginx + php-fpm, Laravel)
                   │  IAM role ──▶ Secrets Manager  htzone/prod
                   └──3306──▶ RDS MySQL 8.4 (private)
                   └── tei container: self-hosted embeddings (multilingual-e5-small)
@@ -13,7 +13,7 @@ Internet ──80──▶ EC2 (Docker: nginx + php-fpm, Laravel)
 
 | Name | Inbound |
 |------|---------|
-| `htzone-web` | TCP 80 from `0.0.0.0/0`; TCP 22 from *your IP* only |
+| `htzone-web` | TCP 80 and TCP 443 from `0.0.0.0/0` (80 is needed for the certificate challenge and the redirect); TCP 22 from *your IP* only |
 | `htzone-db`  | TCP 3306 from source `htzone-web` (the security group, not a CIDR) |
 
 ## 2. RDS MySQL
@@ -94,7 +94,8 @@ git clone https://github.com/<you>/htzoneshop.git && cd htzoneshop
 cat > .env <<'ENV'
 AWS_SECRET_ID=htzone/prod
 AWS_REGION=eu-central-1
-APP_URL=http://<elastic-ip>
+APP_URL=https://<your-domain>
+DOMAIN=<your-domain>
 ENV
 ./deploy.sh
 ```
@@ -106,17 +107,27 @@ On first boot the container:
 
 The `tei` container downloads `intfloat/multilingual-e5-small` (~470 MB) on first start into the `tei-models` volume. `deploy.sh` waits for it, then runs `catalog:embed`, which embeds the 1000 products locally. That takes under a minute and runs only once, because later runs skip products that already have a vector.
 
-Check that it works with `curl http://<elastic-ip>/api/search?q=אייפון`.
+Check that it works with `curl https://<your-domain>/api/search?q=אייפון`.
 
 To update, run `git pull` and then `./deploy.sh` again.
 
-## Optional: HTTPS
+## 7. HTTPS
 
-Point a domain (or `<ip>.sslip.io`) at the Elastic IP and put Caddy in front of the app. Caddy obtains a Let's Encrypt certificate automatically. This step is not done in this submission.
+`compose.prod.yml` runs Caddy (`docker/Caddyfile`) in front of the app. It obtains a Let's Encrypt certificate for `DOMAIN` by itself, renews it, and redirects HTTP to HTTPS.
+
+Before the first deploy with Caddy:
+1. Point the domain's DNS at the Elastic IP (a free DDNS name such as `*.ddns.net` works for a demo).
+2. Open **TCP 443** in `htzone-web` (80 stays open). Without it the certificate challenge fails and the site is unreachable over HTTPS.
+3. Set `DOMAIN` and `APP_URL=https://<domain>` in the host `.env`, then `./deploy.sh`.
+
+The certificate is stored in the `caddy-data` volume. Don't delete it: Let's Encrypt rate-limits repeat requests. The app trusts the proxy headers (`bootstrap/app.php`), so rate limiting sees the real visitor IP.
+
+HSTS is set to one day (`docker/Caddyfile`). Raise it once HTTPS has proven stable.
 
 ## Troubleshooting
 
 - `docker compose -f compose.prod.yml logs -f app` shows the app logs.
 - `database unreachable`: check that the `htzone-db` security group allows 3306 from `htzone-web` and that `DB_HOST` is correct.
 - `AccessDeniedException` from Secrets Manager: the instance role is missing or its ARN or region doesn't match the secret.
+- HTTPS not working: `docker compose -f compose.prod.yml logs caddy`. Usual causes: port 443 not open in `htzone-web`, or the DNS name does not point at the Elastic IP yet.
 - A yellow "keyword only" notice in the UI means the embeddings service is unreachable: check `docker compose -f compose.prod.yml logs tei` (still downloading the model, or killed for memory).
