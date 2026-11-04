@@ -37,6 +37,13 @@ return [
     | Matched on normalized tokens/phrases; every member is added to the keyword
     | query. Covers transliterations ("אייפון" -> iphone) that embeddings miss.
     */
+    'misspellings' => [
+        // common wrong spelling => correct term (not offered in autocomplete)
+        'ifone' => 'iphone',
+        'iphon' => 'iphone',
+        'ayfon' => 'iphone',
+    ],
+
     'synonyms' => [
         ['iphone', 'אייפון', 'איפון', 'apple סמארטפון', 'smartphone apple'],
         ['samsung', 'סמסונג', 'גלקסי', 'galaxy'],

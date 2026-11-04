@@ -23,6 +23,7 @@ class QueryExpander
         private TextNormalizer $normalizer,
         array $synonymGroups,
         private array $vocabulary = [],
+        private array $misspellings = [],
     ) {
         foreach ($synonymGroups as $gi => $group) {
             $this->groups[$gi] = array_map(fn ($t) => $this->normalizer->normalize($t), $group);
@@ -38,8 +39,9 @@ class QueryExpander
      */
     public function expand(string $query): array
     {
-        $tokens = $this->normalizer->contentTokens($query);
-        $allTokens = $this->normalizer->tokens($query);
+        $fix = fn (array $ts) => array_map(fn ($t) => $this->misspellings[$t] ?? $t, $ts);
+        $tokens = $fix($this->normalizer->contentTokens($query));
+        $allTokens = $fix($this->normalizer->tokens($query));
         $terms = [];
 
         $add = function (string $term, float $weight) use (&$terms) {

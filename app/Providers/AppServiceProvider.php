@@ -21,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
             $app->make(TextNormalizer::class),
             config('search.synonyms', []),
             Vocabulary::load(),
+            config('search.misspellings', []),
         ));
         $this->app->bind(Suggester::class, fn ($app) => new Suggester(
             $app->make(TextNormalizer::class),

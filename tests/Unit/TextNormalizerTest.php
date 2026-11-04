@@ -30,6 +30,17 @@ class TextNormalizerTest extends TestCase
         $this->assertSame([], $n->prefixVariants('dyson'));
     }
 
+    public function test_expander_corrects_known_misspellings(): void
+    {
+        $n = new TextNormalizer([]);
+        $x = new QueryExpander($n, [['iphone', 'אייפון']], [], ['ifone' => 'iphone']);
+
+        $r = $x->expand('ifone 16');
+        $this->assertSame(['iphone', '16'], $r['tokens']);
+        $this->assertArrayHasKey('iphone', $r['terms']);
+        $this->assertArrayHasKey('אייפון', $r['terms']);
+    }
+
     public function test_expander_adds_synonyms_and_known_prefix_variants(): void
     {
         $n = new TextNormalizer(['של']);
